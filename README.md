@@ -8,6 +8,17 @@ Run `zig build test`.
 
 ## Usage
 
+Install datastar
+
+```shell
+$ mkdir my_project
+$ cd my_project
+$ zig init
+$ zig fetch --save git+https://github.com/starfederation/datastar-zig`
+```
+
+then
+
 ```zig
 const datastar = @import("datastar");
 
