@@ -23,4 +23,4 @@ try sse.mergeFragments("<div id='question'>What do you put in a toaster?</div>",
 try sse.mergeSignals("{response: '', answer: 'bread'}", .{});
 ```
 
-Full examples at https://github.com/starfederation/datastar/tree/develop/examples/zig
+Full examples at https://github.com/starfederation/datastar/tree/main/examples/zig
