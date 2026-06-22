@@ -1,0 +1,17 @@
+.{
+    .name = .datastar_hello_world,
+    .version = "0.1.0",
+    .fingerprint = 0x8773801ab38a1fab,
+    .minimum_zig_version = "0.16.0",
+    .dependencies = .{
+        .datastar = .{
+            .path = "../",
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "main.zig",
+        "hello_world.html",
+    },
+}

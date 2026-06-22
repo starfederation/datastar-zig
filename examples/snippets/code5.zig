@@ -1,0 +1,12 @@
+== patchSignals handler ==
+
+var sse = try http.NewSSE();
+defer sse.close();
+
+const foo = prng.random().intRangeAtMost(u8, 0, 255);
+const bar = prng.random().intRangeAtMost(u8, 0, 255);
+
+try sse.patchSignals(.{
+    .foo = foo,
+    .bar = bar,
+}, .{}, .{});

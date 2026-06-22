@@ -1,0 +1,16 @@
+.{
+    .name = .datastar_validation,
+    .version = "0.1.0",
+    .fingerprint = 0x31765f6b769ac576,
+    .minimum_zig_version = "0.16.0",
+    .dependencies = .{
+        .datastar = .{
+            .path = "../",
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "validation.zig",
+    },
+}

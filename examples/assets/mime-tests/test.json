@@ -1,0 +1,14 @@
+{
+  "name": "John Doe",
+  "age": 30,
+  "isStudent": false,
+  "address": {
+    "street": "123 Main St",
+    "city": "Anytown"
+  },
+  "courses": [
+    "Math",
+    "Science",
+    "History"
+  ]
+}

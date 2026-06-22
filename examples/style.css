@@ -1,0 +1,9 @@
+/* static/style.css */
+pre,
+code {
+  white-space: pre-line;
+}
+
+body {
+  height: calc(100vh - 128px);
+}

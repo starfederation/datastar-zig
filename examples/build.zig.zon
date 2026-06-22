@@ -1,0 +1,31 @@
+.{
+    .name = .datastar_sdk_examples,
+    .version = "0.1.0",
+    .fingerprint = 0x2808645be7d618ae,
+    .minimum_zig_version = "0.16.0",
+    .dependencies = .{
+        .datastar = .{
+            .path = "../",
+        },
+        .httpz = .{
+            .url = "git+https://github.com/karlseguin/http.zig#250e208845249e41d48a996dbfb0ce18d2e82761",
+            .hash = "httpz-0.0.0-PNVzrJwbCACCRQFU-_piWqJ_sXHCwxyp4HkHLAyY4msq",
+        },
+        .dusty = .{
+            .url = "git+https://github.com/lalinsky/dusty#28a97b118bf1893a17a47fb77bf6529dd997ad99",
+            .hash = "dusty-0.1.0-Qdw7RqYcCgBfokVHhdXJhX5a7vuSjNx2Yeg-xgcAWSmc",
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "01_basic_stdlib.zig",
+        "01_basic_httpz.zig",
+        "01_basic_dusty.zig",
+        "01_index.html",
+        "01_index_opts.html",
+        "style.css",
+        "snippets",
+        "assets",
+    },
+}
