@@ -44,7 +44,8 @@ pub const PatchSignalsOptions = struct {
 pub const ScriptAttributes = std.array_hash_map.String([]const u8);
 
 pub const ExecuteScriptOptions = struct {
-    auto_remove: bool = true, // by default remove the script after use, otherwise explicity set this to false if you want to keep the script loaded
+    /// by default remove the script after use, otherwise explicity set this to false if you want to keep the script loaded
+    auto_remove: bool = true,
     attributes: ?ScriptAttributes = null,
     event_id: ?[]const u8 = null,
     retry_duration: ?i64 = null,
@@ -161,7 +162,8 @@ fn CommandOptions(comptime command: Command) type {
 }
 
 pub const Message = struct {
-    out_buffer: *Io.Writer = undefined, // an intermediate buffer to write the expanded Datastar event stream to
+    /// buffer to write the expanded Datastar event stream to
+    out_buffer: *Io.Writer = undefined,
     input_buffer: [8 * 1024]u8 = undefined,
     started: bool = false,
     command: Command = .patchElements,
