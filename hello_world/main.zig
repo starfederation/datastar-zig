@@ -101,7 +101,6 @@ fn streamHello(io: Io, arena: std.mem.Allocator, request: *std.http.Server.Reque
             },
         },
     });
-    defer body.end() catch {};
     try body.flush(); // push headers to the wire before first SSE event
 
     for (0..MESSAGE.len) |i| {
@@ -118,4 +117,5 @@ fn streamHello(io: Io, arena: std.mem.Allocator, request: *std.http.Server.Reque
         }
     }
     std.debug.print("\n", .{});
+    try body.end();
 }
