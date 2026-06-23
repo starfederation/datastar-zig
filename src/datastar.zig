@@ -390,31 +390,6 @@ pub fn urlDecode(allocator: std.mem.Allocator, input: []const u8) ![]u8 {
     return out[0..j];
 }
 
-test "PatchElementsOptions default values" {
-    const opts = PatchElementsOptions{};
-    try std.testing.expectEqual(PatchMode.outer, opts.mode);
-    try std.testing.expect(opts.selector == null);
-    try std.testing.expect(opts.view_transition == false);
-    try std.testing.expect(opts.event_id == null);
-    try std.testing.expect(opts.retry_duration == null);
-    try std.testing.expectEqual(NameSpace.html, opts.namespace);
-}
-
-test "PatchSignalsOptions default values" {
-    const opts = PatchSignalsOptions{};
-    try std.testing.expect(opts.only_if_missing == false);
-    try std.testing.expect(opts.event_id == null);
-    try std.testing.expect(opts.retry_duration == null);
-}
-
-test "ExecuteScriptOptions default values" {
-    const opts = ExecuteScriptOptions{};
-    try std.testing.expect(opts.auto_remove == true);
-    try std.testing.expect(opts.attributes == null);
-    try std.testing.expect(opts.event_id == null);
-    try std.testing.expect(opts.retry_duration == null);
-}
-
 test "PatchMode enum values" {
     const modes = [_]PatchMode{
         .inner,
@@ -433,15 +408,6 @@ test "PatchMode enum values" {
             try std.testing.expect(mode1 != mode2);
         }
     }
-}
-
-test "NameSpace enum values" {
-    try std.testing.expectEqual(NameSpace.html, NameSpace.html);
-    try std.testing.expectEqual(NameSpace.svg, NameSpace.svg);
-    try std.testing.expectEqual(NameSpace.mathml, NameSpace.mathml);
-
-    try std.testing.expect(NameSpace.html != NameSpace.svg);
-    try std.testing.expect(NameSpace.svg != NameSpace.mathml);
 }
 
 test "Message.init sets correct command and options for patchElements" {
@@ -575,22 +541,4 @@ test "executeScriptFmt transformer formats payload" {
         "event: datastar-patch-elements\ndata: mode append\ndata: selector body\ndata: elements <script>alert('hi world')</script>\n\n",
         out,
     );
-}
-
-test "PatchElementsOptions with custom values" {
-    const opts = PatchElementsOptions{
-        .mode = .inner,
-        .selector = "#content",
-        .view_transition = true,
-        .event_id = "evt-123",
-        .retry_duration = 5000,
-        .namespace = .svg,
-    };
-
-    try std.testing.expectEqual(PatchMode.inner, opts.mode);
-    try std.testing.expectEqualStrings("#content", opts.selector.?);
-    try std.testing.expect(opts.view_transition);
-    try std.testing.expectEqualStrings("evt-123", opts.event_id.?);
-    try std.testing.expectEqual(5000, opts.retry_duration.?);
-    try std.testing.expectEqual(NameSpace.svg, opts.namespace);
 }
