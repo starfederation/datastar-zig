@@ -316,9 +316,8 @@ fn executeScript(arena: std.mem.Allocator, request: *std.http.Server.Request, sa
 
 // ----- Long-lived streaming SSE -----
 
-fn beginStream(request: *std.http.Server.Request) !std.http.BodyWriter {
-    var buf: [4096]u8 = undefined;
-    var body = try request.respondStreaming(&buf, .{
+fn beginStream(buffer: []u8, request: *std.http.Server.Request) !std.http.BodyWriter {
+    var body = try request.respondStreaming(buffer, .{
         .respond_options = .{
             .extra_headers = &.{
                 .{ .name = "content-type", .value = "text/event-stream; charset=UTF-8" },
@@ -333,7 +332,8 @@ fn beginStream(request: *std.http.Server.Request) !std.http.BodyWriter {
 fn svgMorph(arena: std.mem.Allocator, request: *std.http.Server.Request) !void {
     const opt = try datastar.readSignals(struct { svgMorph: usize = 1 }, arena, request);
 
-    var body = try beginStream(request);
+    var body_buffer: [4096]u8 = undefined;
+    var body = try beginStream(&body_buffer, request);
     defer body.end() catch {};
 
     var frame_buf: [4096]u8 = undefined;
@@ -391,7 +391,8 @@ fn mathMorph(arena: std.mem.Allocator, request: *std.http.Server.Request) !void 
         return;
     }
 
-    var stream = try beginStream(request);
+    var stream_buffer: [4096]u8 = undefined;
+    var stream = try beginStream(&stream_buffer, request);
     defer stream.end() catch {};
 
     var frame_buf: [4096]u8 = undefined;
@@ -469,7 +470,8 @@ fn mimeTest(arena: std.mem.Allocator, request: *std.http.Server.Request, filenam
 }
 
 fn hotreload(request: *std.http.Server.Request, id: u64) !void {
-    var stream = try beginStream(request);
+    var stream_buffer: [4096]u8 = undefined;
+    var stream = try beginStream(&stream_buffer, request);
     defer stream.end() catch {};
 
     var frame_buf: [1024]u8 = undefined;
