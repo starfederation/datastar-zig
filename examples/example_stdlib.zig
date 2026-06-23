@@ -11,20 +11,14 @@ const PORT = 8081;
 
 pub const std_options = std.Options{ .log_level = .debug };
 
-var update_count: usize = 1;
-var update_mutex: Io.Mutex = .init;
+var update_count: std.atomic.Value(usize) = .init(1);
 
 var prng: std.Random.DefaultPrng = .init(0);
 
 var shared_io: Io = undefined;
 
-fn getCountAndIncrement(io: Io) !usize {
-    try update_mutex.lock(io);
-    defer {
-        update_count += 1;
-        update_mutex.unlock(io);
-    }
-    return update_count;
+fn getCountAndIncrement() usize {
+    return update_count.fetchAdd(1, .acq_rel);
 }
 
 var hotreload_id: u64 = 0;
@@ -193,7 +187,7 @@ fn respondJson(arena: std.mem.Allocator, request: *std.http.Server.Request, valu
 fn textHtml(arena: std.mem.Allocator, request: *std.http.Server.Request) !void {
     const body = try std.fmt.allocPrint(arena,
         \\<p id="text-html">This is update number {d}</p>
-    , .{try getCountAndIncrement(shared_io)});
+    , .{getCountAndIncrement()});
     try request.respond(body, .{
         .extra_headers = &.{.{ .name = "content-type", .value = "text/html; charset=UTF-8" }},
     });
@@ -202,7 +196,7 @@ fn textHtml(arena: std.mem.Allocator, request: *std.http.Server.Request) !void {
 fn patchElements(arena: std.mem.Allocator, request: *std.http.Server.Request) !void {
     const block = try datastar.patchElementsFmt(arena,
         \\<p id="mf-patch">This is update number {d}</p>
-    , .{try getCountAndIncrement(shared_io)}, .{});
+    , .{getCountAndIncrement()}, .{});
     try respondSse(arena, request, block);
 }
 
@@ -226,7 +220,7 @@ fn patchElementsOpts(arena: std.mem.Allocator, request: *std.http.Server.Request
         , opts),
         else => try datastar.patchElementsFmt(arena,
             \\<p>This is update number {d}</p>
-        , .{try getCountAndIncrement(shared_io)}, opts),
+        , .{getCountAndIncrement()}, opts),
     };
     try respondSse(arena, request, body);
 }
