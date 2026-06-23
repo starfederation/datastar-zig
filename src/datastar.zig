@@ -51,7 +51,7 @@ pub const ExecuteScriptOptions = struct {
     retry_duration: ?i64 = null,
 };
 
-pub const DEFAULT_BUFFER_SIZE = 8 * 1024;
+pub const default_buffer_size = 8 * 1024;
 
 // Framework-agnostic transformer functions.
 //
@@ -63,7 +63,7 @@ pub const DEFAULT_BUFFER_SIZE = 8 * 1024;
 
 pub fn patchElements(arena: Allocator, elements: []const u8, opt: PatchElementsOptions) ![]const u8 {
     var buf: Io.Writer.Allocating = .init(arena);
-    var msg_buffer: [0x1000]u8 = undefined;
+    var msg_buffer: [default_buffer_size]u8 = undefined;
     var msg: Message = .patchElements(opt, &msg_buffer, &buf.writer);
     try msg.header();
     try msg.interface.writeAll(elements);
@@ -73,7 +73,7 @@ pub fn patchElements(arena: Allocator, elements: []const u8, opt: PatchElementsO
 
 pub fn patchElementsFmt(arena: Allocator, comptime elements: []const u8, args: anytype, opt: PatchElementsOptions) ![]const u8 {
     var buf: Io.Writer.Allocating = .init(arena);
-    var msg_buffer: [0x1000]u8 = undefined;
+    var msg_buffer: [default_buffer_size]u8 = undefined;
     var msg: Message = .patchElements(opt, &msg_buffer, &buf.writer);
     try msg.header();
     try msg.interface.print(elements, args);
@@ -83,7 +83,7 @@ pub fn patchElementsFmt(arena: Allocator, comptime elements: []const u8, args: a
 
 pub fn patchSignals(arena: Allocator, signals: anytype, opt: PatchSignalsOptions) ![]const u8 {
     var buf: Io.Writer.Allocating = .init(arena);
-    var msg_buffer: [0x1000]u8 = undefined;
+    var msg_buffer: [default_buffer_size]u8 = undefined;
     var msg: Message = .patchSignals(opt, &msg_buffer, &buf.writer);
     try msg.header();
     const json_formatter = std.json.fmt(signals, .{});
@@ -94,7 +94,7 @@ pub fn patchSignals(arena: Allocator, signals: anytype, opt: PatchSignalsOptions
 
 pub fn executeScript(arena: Allocator, script: []const u8, opt: ExecuteScriptOptions) ![]const u8 {
     var buf: Io.Writer.Allocating = .init(arena);
-    var msg_buffer: [0x1000]u8 = undefined;
+    var msg_buffer: [default_buffer_size]u8 = undefined;
     var msg: Message = .executeScript(opt, &msg_buffer, &buf.writer);
     try msg.header();
     try msg.interface.writeAll(script);
@@ -104,7 +104,7 @@ pub fn executeScript(arena: Allocator, script: []const u8, opt: ExecuteScriptOpt
 
 pub fn executeScriptFmt(arena: Allocator, comptime script: []const u8, args: anytype, opt: ExecuteScriptOptions) ![]const u8 {
     var buf: Io.Writer.Allocating = .init(arena);
-    var msg_buffer: [0x1000]u8 = undefined;
+    var msg_buffer: [default_buffer_size]u8 = undefined;
     var msg: Message = .executeScript(opt, &msg_buffer, &buf.writer);
 
     try msg.header();
@@ -448,7 +448,7 @@ test "Message.init sets correct command and options for patchElements" {
     var buffer: [1024]u8 = undefined;
     var writer = std.Io.Writer.fixed(&buffer);
 
-    var msg_buffer: [1024]u8 = undefined;
+    var msg_buffer: [default_buffer_size]u8 = undefined;
     const msg: Message = .patchElements(.{ .mode = .inner, .selector = "#test" }, &msg_buffer, &writer);
 
     try std.testing.expectEqual(PatchMode.inner, msg.command.patch_elements.mode);
@@ -459,7 +459,7 @@ test "Message.init sets correct command and options for patchSignals" {
     var buffer: [1024]u8 = undefined;
     var writer = std.Io.Writer.fixed(&buffer);
 
-    var msg_buffer: [1024]u8 = undefined;
+    var msg_buffer: [default_buffer_size]u8 = undefined;
     const msg: Message = .patchSignals(.{ .only_if_missing = true }, &msg_buffer, &writer);
 
     try std.testing.expect(msg.command.patch_signals.only_if_missing);
@@ -469,7 +469,7 @@ test "Message.init sets correct command and options for executeScript" {
     var buffer: [1024]u8 = undefined;
     var writer = std.Io.Writer.fixed(&buffer);
 
-    var msg_buffer: [1024]u8 = undefined;
+    var msg_buffer: [default_buffer_size]u8 = undefined;
     const msg: Message = .executeScript(.{ .auto_remove = false }, &msg_buffer, &writer);
 
     try std.testing.expect(!msg.command.execute_script.auto_remove);
