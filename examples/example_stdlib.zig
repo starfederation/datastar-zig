@@ -276,10 +276,10 @@ fn patchSignalsRemove(arena: std.mem.Allocator, request: *std.http.Server.Reques
 }
 
 fn executeScript(arena: std.mem.Allocator, request: *std.http.Server.Request, sample: u8) !void {
-    var attribs = datastar.ScriptAttributes.init(arena);
-    try attribs.put("type", "text/javascript");
-    try attribs.put("trace", "true");
-    try attribs.put("aardvark", "should appear last, not first");
+    var attribs: datastar.ScriptAttributes = .empty;
+    try attribs.put(arena, "type", "text/javascript");
+    try attribs.put(arena, "trace", "true");
+    try attribs.put(arena, "aardvark", "should appear last, not first");
 
     const body = switch (sample) {
         1 => try datastar.executeScript(

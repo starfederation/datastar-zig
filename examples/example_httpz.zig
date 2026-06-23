@@ -276,10 +276,10 @@ const snippets = [_][]const u8{
 fn executeScript(req: *httpz.Request, res: *httpz.Response) !void {
     const sample = paramInt(u8, req, "sample") orelse 0;
 
-    var attribs = datastar.ScriptAttributes.init(res.arena);
-    try attribs.put("type", "text/javascript");
-    try attribs.put("trace", "true");
-    try attribs.put("aardvark", "should appear last, not first");
+    var attribs: datastar.ScriptAttributes = .empty;
+    try attribs.put(res.arena, "type", "text/javascript");
+    try attribs.put(res.arena, "trace", "true");
+    try attribs.put(res.arena, "aardvark", "should appear last, not first");
 
     beginSse(res);
     res.body = switch (sample) {
