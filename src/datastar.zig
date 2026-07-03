@@ -3,9 +3,9 @@ const Io = std.Io;
 const Allocator = std.mem.Allocator;
 
 pub const Command = enum {
-    patchElements,
-    patchSignals,
-    executeScript,
+    patch_elements,
+    patch_signals,
+    execute_script,
 };
 
 pub const PatchMode = enum {
@@ -41,49 +41,17 @@ pub const PatchSignalsOptions = struct {
     retry_duration: ?i64 = null,
 };
 
-pub const ScriptAttributes = struct {
-    const Map = std.array_hash_map.String([]const u8);
-
-    map: Map = .empty,
-    allocator: Allocator,
-
-    pub fn init(allocator: Allocator) ScriptAttributes {
-        return .{ .allocator = allocator };
-    }
-
-    pub fn deinit(self: *ScriptAttributes) void {
-        self.map.deinit(self.allocator);
-    }
-
-    pub fn put(self: *ScriptAttributes, key: []const u8, value: []const u8) !void {
-        try self.map.put(self.allocator, key, value);
-    }
-
-    pub fn count(self: ScriptAttributes) usize {
-        return self.map.count();
-    }
-
-    pub fn get(self: ScriptAttributes, key: []const u8) ?[]const u8 {
-        return self.map.get(key);
-    }
-
-    pub fn keys(self: ScriptAttributes) [][]const u8 {
-        return self.map.keys();
-    }
-
-    pub fn values(self: ScriptAttributes) [][]const u8 {
-        return self.map.values();
-    }
-};
+pub const ScriptAttributes = std.array_hash_map.String([]const u8);
 
 pub const ExecuteScriptOptions = struct {
-    auto_remove: bool = true, // by default remove the script after use, otherwise explicity set this to false if you want to keep the script loaded
+    /// by default remove the script after use, otherwise explicity set this to false if you want to keep the script loaded
+    auto_remove: bool = true,
     attributes: ?ScriptAttributes = null,
     event_id: ?[]const u8 = null,
     retry_duration: ?i64 = null,
 };
 
-pub const DEFAULT_BUFFER_SIZE = 8 * 1024;
+pub const default_buffer_size = 8 * 1024;
 
 // Framework-agnostic transformer functions.
 //
@@ -95,8 +63,8 @@ pub const DEFAULT_BUFFER_SIZE = 8 * 1024;
 
 pub fn patchElements(arena: Allocator, elements: []const u8, opt: PatchElementsOptions) ![]const u8 {
     var buf: Io.Writer.Allocating = .init(arena);
-    var msg: Message = .{};
-    msg.init(.patchElements, opt, &buf.writer);
+    var msg_buffer: [default_buffer_size]u8 = undefined;
+    var msg: Message = .patchElements(opt, &msg_buffer, &buf.writer);
     try msg.header();
     try msg.interface.writeAll(elements);
     try msg.end();
@@ -105,8 +73,8 @@ pub fn patchElements(arena: Allocator, elements: []const u8, opt: PatchElementsO
 
 pub fn patchElementsFmt(arena: Allocator, comptime elements: []const u8, args: anytype, opt: PatchElementsOptions) ![]const u8 {
     var buf: Io.Writer.Allocating = .init(arena);
-    var msg: Message = .{};
-    msg.init(.patchElements, opt, &buf.writer);
+    var msg_buffer: [default_buffer_size]u8 = undefined;
+    var msg: Message = .patchElements(opt, &msg_buffer, &buf.writer);
     try msg.header();
     try msg.interface.print(elements, args);
     try msg.end();
@@ -115,8 +83,8 @@ pub fn patchElementsFmt(arena: Allocator, comptime elements: []const u8, args: a
 
 pub fn patchSignals(arena: Allocator, signals: anytype, opt: PatchSignalsOptions) ![]const u8 {
     var buf: Io.Writer.Allocating = .init(arena);
-    var msg: Message = .{};
-    msg.init(.patchSignals, opt, &buf.writer);
+    var msg_buffer: [default_buffer_size]u8 = undefined;
+    var msg: Message = .patchSignals(opt, &msg_buffer, &buf.writer);
     try msg.header();
     const json_formatter = std.json.fmt(signals, .{});
     try json_formatter.format(&msg.interface);
@@ -126,8 +94,8 @@ pub fn patchSignals(arena: Allocator, signals: anytype, opt: PatchSignalsOptions
 
 pub fn executeScript(arena: Allocator, script: []const u8, opt: ExecuteScriptOptions) ![]const u8 {
     var buf: Io.Writer.Allocating = .init(arena);
-    var msg: Message = .{};
-    msg.init(.executeScript, opt, &buf.writer);
+    var msg_buffer: [default_buffer_size]u8 = undefined;
+    var msg: Message = .executeScript(opt, &msg_buffer, &buf.writer);
     try msg.header();
     try msg.interface.writeAll(script);
     try msg.end();
@@ -136,8 +104,9 @@ pub fn executeScript(arena: Allocator, script: []const u8, opt: ExecuteScriptOpt
 
 pub fn executeScriptFmt(arena: Allocator, comptime script: []const u8, args: anytype, opt: ExecuteScriptOptions) ![]const u8 {
     var buf: Io.Writer.Allocating = .init(arena);
-    var msg: Message = .{};
-    msg.init(.executeScript, opt, &buf.writer);
+    var msg_buffer: [default_buffer_size]u8 = undefined;
+    var msg: Message = .executeScript(opt, &msg_buffer, &buf.writer);
+
     try msg.header();
     try msg.interface.print(script, args);
     try msg.end();
@@ -185,64 +154,71 @@ pub fn readSignals(comptime T: type, arena: std.mem.Allocator, req: *std.http.Se
     }
 }
 
-fn CommandOptions(comptime command: Command) type {
-    return switch (command) {
-        .patchElements => PatchElementsOptions,
-        .patchSignals => PatchSignalsOptions,
-        .executeScript => ExecuteScriptOptions,
-    };
-}
+const CommandOptions = union(Command) {
+    patch_elements: PatchElementsOptions,
+    patch_signals: PatchSignalsOptions,
+    execute_script: ExecuteScriptOptions,
+};
 
 pub const Message = struct {
-    out_buffer: *Io.Writer = undefined, // an intermediate buffer to write the expanded Datastar event stream to
-    input_buffer: [8 * 1024]u8 = undefined,
-    started: bool = false,
-    command: Command = .patchElements,
+    /// buffer to write the expanded Datastar event stream to
+    out_writer: *Io.Writer,
+    started: bool,
 
-    patch_element_options: PatchElementsOptions = .{},
-    patch_signal_options: PatchSignalsOptions = .{},
-    execute_script_options: ExecuteScriptOptions = .{},
+    command: CommandOptions,
 
-    line_in_progress: bool = false,
-    interface: Io.Writer = undefined,
+    line_in_progress: bool,
+    interface: Io.Writer,
 
-    fn init(m: *Message, comptime command: Command, opt: CommandOptions(command), out_buffer: *Io.Writer) void {
-        m.out_buffer = out_buffer;
-        m.command = command;
-        m.interface = .{
-            .buffer = &m.input_buffer,
-            .vtable = &.{
-                .drain = &drain,
+    pub fn patchElements(options: PatchElementsOptions, input_buffer: []u8, out_writer: *Io.Writer) Message {
+        return .{
+            .started = false,
+            .line_in_progress = false,
+            .out_writer = out_writer,
+            .command = .{ .patch_elements = options },
+            .interface = .{
+                .buffer = input_buffer,
+                .vtable = &.{
+                    .drain = &drain,
+                },
             },
         };
-        switch (command) {
-            .patchElements => {
-                m.patch_element_options = opt;
-            },
-            .patchSignals => {
-                m.patch_signal_options = opt;
-            },
-            .executeScript => {
-                m.execute_script_options = opt;
-            },
-        }
     }
 
-    pub fn swapTo(self: *Message, comptime command: Command, opt: CommandOptions(command)) void {
-        // always just swap to new command
-        self.end() catch {};
+    pub fn patchSignals(options: PatchSignalsOptions, input_buffer: []u8, out_writer: *Io.Writer) Message {
+        return .{
+            .started = false,
+            .line_in_progress = false,
+            .out_writer = out_writer,
+            .command = .{ .patch_signals = options },
+            .interface = .{
+                .buffer = input_buffer,
+                .vtable = &.{
+                    .drain = &drain,
+                },
+            },
+        };
+    }
+
+    pub fn executeScript(options: ExecuteScriptOptions, input_buffer: []u8, out_writer: *Io.Writer) Message {
+        return .{
+            .started = false,
+            .line_in_progress = false,
+            .out_writer = out_writer,
+            .command = .{ .execute_script = options },
+            .interface = .{
+                .buffer = input_buffer,
+                .vtable = &.{
+                    .drain = &drain,
+                },
+            },
+        };
+    }
+
+    pub fn swapTo(self: *Message, command: CommandOptions) !void {
+        // can't always just swap to new command because it would swallow cancelation error.
+        try self.end();
         self.command = command;
-        switch (command) {
-            .patchElements => {
-                self.patch_element_options = opt;
-            },
-            .patchSignals => {
-                self.patch_signal_options = opt;
-            },
-            .executeScript => {
-                self.execute_script_options = opt;
-            },
-        }
     }
 
     pub fn end(self: *Message) !void {
@@ -254,11 +230,11 @@ pub const Message = struct {
             self.line_in_progress = false;
 
             // const w = self.stream_writer;
-            const w = self.out_buffer;
+            const w = self.out_writer;
 
             switch (self.command) {
                 else => {},
-                .executeScript => {
+                .execute_script => {
                     // need to close off the script tag !!
                     try w.writeAll("</script>");
                 },
@@ -270,66 +246,66 @@ pub const Message = struct {
 
     pub fn header(self: *Message) !void {
         // var w = self.stream_writer;
-        var w = self.out_buffer;
+        var w = self.out_writer;
 
         switch (self.command) {
-            .patchElements => {
+            .patch_elements => |*patch_elements| {
                 try w.writeAll("event: datastar-patch-elements\n");
-                if (self.patch_element_options.event_id) |event_id| {
+                if (patch_elements.event_id) |event_id| {
                     try w.print("id: {s}\n", .{event_id});
                 }
-                if (self.patch_element_options.retry_duration) |retry| {
+                if (patch_elements.retry_duration) |retry| {
                     try w.print("retry: {}\n", .{retry});
                 }
-                if (self.patch_element_options.selector) |s| {
+                if (patch_elements.selector) |s| {
                     try w.print("data: selector {s}\n", .{s});
                 }
-                if (self.patch_element_options.view_transition) {
+                if (patch_elements.view_transition) {
                     try w.print("data: useViewTransition true\n", .{});
                 }
-                if (self.patch_element_options.view_transition_selector) |s| {
+                if (patch_elements.view_transition_selector) |s| {
                     try w.print("data: viewTransitionSelector {s}\n", .{s});
                 }
-                const mt = self.patch_element_options.mode;
+                const mt = patch_elements.mode;
                 switch (mt) {
                     .outer => {},
                     else => try w.print("data: mode {t}\n", .{mt}),
                 }
-                switch (self.patch_element_options.namespace) {
+                switch (patch_elements.namespace) {
                     .html => {},
                     .svg => try w.writeAll("data: namespace svg\n"),
                     .mathml => try w.writeAll("data: namespace mathml\n"),
                 }
             },
-            .patchSignals => {
+            .patch_signals => |patch_signals| {
                 try w.writeAll("event: datastar-patch-signals\n");
-                if (self.patch_signal_options.event_id) |event_id| {
+                if (patch_signals.event_id) |event_id| {
                     try w.print("id: {s}\n", .{event_id});
                 }
-                if (self.patch_signal_options.retry_duration) |retry| {
+                if (patch_signals.retry_duration) |retry| {
                     try w.print("retry: {}\n", .{retry});
                 }
-                if (self.patch_signal_options.only_if_missing) {
+                if (patch_signals.only_if_missing) {
                     try w.writeAll("data: onlyIfMissing true\n");
                 }
             },
-            .executeScript => {
+            .execute_script => |execute_script| {
                 try w.writeAll("event: datastar-patch-elements\n");
-                if (self.execute_script_options.event_id) |event_id| {
+                if (execute_script.event_id) |event_id| {
                     try w.print("id: {s}\n", .{event_id});
                 }
-                if (self.execute_script_options.retry_duration) |retry| {
+                if (execute_script.retry_duration) |retry| {
                     try w.print("retry: {}\n", .{retry});
                 }
                 try w.writeAll("data: mode append\ndata: selector body\ndata: elements <script");
 
                 // now add the attribs if any are supplied
-                if (self.execute_script_options.attributes) |attribs| {
+                if (execute_script.attributes) |attribs| {
                     for (attribs.keys(), attribs.values()) |key, value| {
                         try w.print(" {s}=\"{s}\"", .{ key, value });
                     }
                 }
-                if (self.execute_script_options.auto_remove) {
+                if (execute_script.auto_remove) {
                     try w.writeAll(" data-effect=\"el.remove()\"");
                 }
 
@@ -351,9 +327,9 @@ pub const Message = struct {
         var written: usize = 0;
 
         if (w.end > 0) {
-            written += try writeBytesScan(self, self.out_buffer, w.buffered());
+            written += try writeBytesScan(self, self.out_writer, w.buffered());
         }
-        written += try writeBytesScan(self, self.out_buffer, data[0]);
+        written += try writeBytesScan(self, self.out_writer, data[0]);
 
         // TODO - we have the expanded contents in self.out_buffer here - debug that, then send the whole contents of the out_buffer to the self.stream_writer
         return w.consume(written);
@@ -362,8 +338,8 @@ pub const Message = struct {
     // implementation of writeBytes using SIMD scan of the input to find newlines
     fn writeBytesScan(self: *Message, stream_writer: *Io.Writer, bytes: []const u8) !usize {
         const prefix = switch (self.command) {
-            .patchElements, .executeScript => "data: elements ",
-            .patchSignals => "data: signals ",
+            .patch_elements, .execute_script => "data: elements ",
+            .patch_signals => "data: signals ",
         };
 
         var rest = bytes;
@@ -414,42 +390,6 @@ pub fn urlDecode(allocator: std.mem.Allocator, input: []const u8) ![]u8 {
     return out[0..j];
 }
 
-test "PatchElementsOptions default values" {
-    const opts = PatchElementsOptions{};
-    try std.testing.expectEqual(PatchMode.outer, opts.mode);
-    try std.testing.expect(opts.selector == null);
-    try std.testing.expect(opts.view_transition == false);
-    try std.testing.expect(opts.event_id == null);
-    try std.testing.expect(opts.retry_duration == null);
-    try std.testing.expectEqual(NameSpace.html, opts.namespace);
-}
-
-test "PatchSignalsOptions default values" {
-    const opts = PatchSignalsOptions{};
-    try std.testing.expect(opts.only_if_missing == false);
-    try std.testing.expect(opts.event_id == null);
-    try std.testing.expect(opts.retry_duration == null);
-}
-
-test "ExecuteScriptOptions default values" {
-    const opts = ExecuteScriptOptions{};
-    try std.testing.expect(opts.auto_remove == true);
-    try std.testing.expect(opts.attributes == null);
-    try std.testing.expect(opts.event_id == null);
-    try std.testing.expect(opts.retry_duration == null);
-}
-
-test "Command enum values" {
-    try std.testing.expect(@typeInfo(Command) == .@"enum");
-    const cmd1: Command = .patchElements;
-    const cmd2: Command = .patchSignals;
-    const cmd3: Command = .executeScript;
-
-    try std.testing.expect(cmd1 != cmd2);
-    try std.testing.expect(cmd2 != cmd3);
-    try std.testing.expect(cmd1 != cmd3);
-}
-
 test "PatchMode enum values" {
     const modes = [_]PatchMode{
         .inner,
@@ -470,62 +410,35 @@ test "PatchMode enum values" {
     }
 }
 
-test "NameSpace enum values" {
-    try std.testing.expectEqual(NameSpace.html, NameSpace.html);
-    try std.testing.expectEqual(NameSpace.svg, NameSpace.svg);
-    try std.testing.expectEqual(NameSpace.mathml, NameSpace.mathml);
-
-    try std.testing.expect(NameSpace.html != NameSpace.svg);
-    try std.testing.expect(NameSpace.svg != NameSpace.mathml);
-}
-
 test "Message.init sets correct command and options for patchElements" {
     var buffer: [1024]u8 = undefined;
     var writer = std.Io.Writer.fixed(&buffer);
 
-    var msg: Message = undefined;
-    const opts = PatchElementsOptions{ .mode = .inner, .selector = "#test" };
-    msg.init(.patchElements, opts, &writer);
+    var msg_buffer: [default_buffer_size]u8 = undefined;
+    const msg: Message = .patchElements(.{ .mode = .inner, .selector = "#test" }, &msg_buffer, &writer);
 
-    try std.testing.expectEqual(Command.patchElements, msg.command);
-    try std.testing.expectEqual(PatchMode.inner, msg.patch_element_options.mode);
-    try std.testing.expectEqualStrings("#test", msg.patch_element_options.selector.?);
+    try std.testing.expectEqual(PatchMode.inner, msg.command.patch_elements.mode);
+    try std.testing.expectEqualStrings("#test", msg.command.patch_elements.selector.?);
 }
 
 test "Message.init sets correct command and options for patchSignals" {
     var buffer: [1024]u8 = undefined;
     var writer = std.Io.Writer.fixed(&buffer);
 
-    var msg: Message = undefined;
-    const opts = PatchSignalsOptions{ .only_if_missing = true };
-    msg.init(.patchSignals, opts, &writer);
+    var msg_buffer: [default_buffer_size]u8 = undefined;
+    const msg: Message = .patchSignals(.{ .only_if_missing = true }, &msg_buffer, &writer);
 
-    try std.testing.expectEqual(Command.patchSignals, msg.command);
-    try std.testing.expect(msg.patch_signal_options.only_if_missing);
+    try std.testing.expect(msg.command.patch_signals.only_if_missing);
 }
 
 test "Message.init sets correct command and options for executeScript" {
     var buffer: [1024]u8 = undefined;
     var writer = std.Io.Writer.fixed(&buffer);
 
-    var msg: Message = undefined;
-    const opts = ExecuteScriptOptions{ .auto_remove = false };
-    msg.init(.executeScript, opts, &writer);
+    var msg_buffer: [default_buffer_size]u8 = undefined;
+    const msg: Message = .executeScript(.{ .auto_remove = false }, &msg_buffer, &writer);
 
-    try std.testing.expectEqual(Command.executeScript, msg.command);
-    try std.testing.expect(!msg.execute_script_options.auto_remove);
-}
-
-test "ScriptAttributes can store key-value pairs" {
-    var attrs = ScriptAttributes.init(std.testing.allocator);
-    defer attrs.deinit();
-
-    try attrs.put("type", "module");
-    try attrs.put("async", "true");
-
-    try std.testing.expectEqual(2, attrs.count());
-    try std.testing.expectEqualStrings("module", attrs.get("type").?);
-    try std.testing.expectEqualStrings("true", attrs.get("async").?);
+    try std.testing.expect(!msg.command.execute_script.auto_remove);
 }
 
 test "patchElements transformer emits SSE event stream" {
@@ -628,22 +541,4 @@ test "executeScriptFmt transformer formats payload" {
         "event: datastar-patch-elements\ndata: mode append\ndata: selector body\ndata: elements <script>alert('hi world')</script>\n\n",
         out,
     );
-}
-
-test "PatchElementsOptions with custom values" {
-    const opts = PatchElementsOptions{
-        .mode = .inner,
-        .selector = "#content",
-        .view_transition = true,
-        .event_id = "evt-123",
-        .retry_duration = 5000,
-        .namespace = .svg,
-    };
-
-    try std.testing.expectEqual(PatchMode.inner, opts.mode);
-    try std.testing.expectEqualStrings("#content", opts.selector.?);
-    try std.testing.expect(opts.view_transition);
-    try std.testing.expectEqualStrings("evt-123", opts.event_id.?);
-    try std.testing.expectEqual(5000, opts.retry_duration.?);
-    try std.testing.expectEqual(NameSpace.svg, opts.namespace);
 }

@@ -254,10 +254,10 @@ const snippets = [_][]const u8{
 fn executeScript(req: *dusty.Request, res: *dusty.Response) !void {
     const sample = paramInt(u8, req, "sample") orelse 0;
 
-    var attribs = datastar.ScriptAttributes.init(req.arena);
-    try attribs.put("type", "text/javascript");
-    try attribs.put("trace", "true");
-    try attribs.put("aardvark", "should appear last, not first");
+    var attribs: datastar.ScriptAttributes = .empty;
+    try attribs.put(req.arena, "type", "text/javascript");
+    try attribs.put(req.arena, "trace", "true");
+    try attribs.put(req.arena, "aardvark", "should appear last, not first");
 
     try beginSseBatch(res);
     res.body = switch (sample) {
