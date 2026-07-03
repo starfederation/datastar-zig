@@ -183,9 +183,9 @@ fn respondJson(arena: std.mem.Allocator, request: *std.http.Server.Request, valu
             },
         },
     });
-    defer body.end() catch {};
     const jf = std.json.fmt(value, .{});
     try jf.format(&body.writer);
+    try body.end();
 }
 
 // ----- Handlers -----
@@ -316,9 +316,8 @@ fn executeScript(arena: std.mem.Allocator, request: *std.http.Server.Request, sa
 
 // ----- Long-lived streaming SSE -----
 
-fn beginStream(request: *std.http.Server.Request) !std.http.BodyWriter {
-    var buf: [4096]u8 = undefined;
-    var body = try request.respondStreaming(&buf, .{
+fn beginStream(buffer: []u8, request: *std.http.Server.Request) !std.http.BodyWriter {
+    var body = try request.respondStreaming(buffer, .{
         .respond_options = .{
             .extra_headers = &.{
                 .{ .name = "content-type", .value = "text/event-stream; charset=UTF-8" },
@@ -333,8 +332,8 @@ fn beginStream(request: *std.http.Server.Request) !std.http.BodyWriter {
 fn svgMorph(arena: std.mem.Allocator, request: *std.http.Server.Request) !void {
     const opt = try datastar.readSignals(struct { svgMorph: usize = 1 }, arena, request);
 
-    var body = try beginStream(request);
-    defer body.end() catch {};
+    var body_buffer: [4096]u8 = undefined;
+    var body = try beginStream(&body_buffer, request);
 
     var frame_buf: [4096]u8 = undefined;
     var fba: std.heap.FixedBufferAllocator = .init(&frame_buf);
@@ -359,6 +358,8 @@ fn svgMorph(arena: std.mem.Allocator, request: *std.http.Server.Request) !void {
         });
         try shared_io.sleep(.fromMilliseconds(100), .real);
     }
+
+    try body.end();
 }
 
 fn emitSvgFrame(body: *std.http.BodyWriter, fba: *std.heap.FixedBufferAllocator, comptime fmt: []const u8, args: anytype) !void {
@@ -391,8 +392,8 @@ fn mathMorph(arena: std.mem.Allocator, request: *std.http.Server.Request) !void 
         return;
     }
 
-    var stream = try beginStream(request);
-    defer stream.end() catch {};
+    var stream_buffer: [4096]u8 = undefined;
+    var stream = try beginStream(&stream_buffer, request);
 
     var frame_buf: [4096]u8 = undefined;
     var fba: std.heap.FixedBufferAllocator = .init(&frame_buf);
@@ -417,8 +418,7 @@ fn mathMorph(arena: std.mem.Allocator, request: *std.http.Server.Request) !void 
     fba.reset();
     const reset_block = try datastar.patchSignals(fba.allocator(), .{ .mathmlMorph = 1 }, .{});
     try stream.writer.writeAll(reset_block);
-    try stream.writer.flush();
-    try stream.flush();
+    try stream.end();
 }
 
 const snippets = [_][]const u8{
@@ -469,8 +469,8 @@ fn mimeTest(arena: std.mem.Allocator, request: *std.http.Server.Request, filenam
 }
 
 fn hotreload(request: *std.http.Server.Request, id: u64) !void {
-    var stream = try beginStream(request);
-    defer stream.end() catch {};
+    var stream_buffer: [4096]u8 = undefined;
+    var stream = try beginStream(&stream_buffer, request);
 
     var frame_buf: [1024]u8 = undefined;
     var fba: std.heap.FixedBufferAllocator = .init(&frame_buf);
@@ -498,4 +498,6 @@ fn hotreload(request: *std.http.Server.Request, id: u64) !void {
         try stream.writer.flush();
         try stream.flush();
     }
+
+    try stream.end();
 }
