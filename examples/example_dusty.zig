@@ -6,30 +6,36 @@
 const std = @import("std");
 const dusty = @import("dusty");
 const datastar = @import("datastar");
+const zio = @import("zio");
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
 
 const PORT = 8081;
 
 pub const std_options = std.Options{ .log_level = .debug };
+pub const std_options_debug_io = zio.debug_io;
 
-var update_count: usize = 1;
-var update_mutex: Io.Mutex = .init;
+var update_count: std.atomic.Value(usize) = .init(1);
 
 var prng: std.Random.DefaultPrng = .init(0);
+var random_mutex: Io.Mutex = .init;
 
-fn getCountAndIncrement(io: Io) !usize {
-    try update_mutex.lock(io);
-    defer {
-        update_count += 1;
-        update_mutex.unlock(io);
-    }
-    return update_count;
+fn getCountAndIncrement() usize {
+    return update_count.fetchAdd(1, .acq_rel);
+}
+
+fn randomIntRangeAtMost(io: Io, comptime T: type, min: T, max: T) !T {
+    try random_mutex.lock(io);
+    defer random_mutex.unlock(io);
+    return prng.random().intRangeAtMost(T, min, max);
 }
 
 var hotreload_id: u64 = 0;
 
-fn setHotReload(io: Io) void {
+fn setHotReload(io: Io) !void {
+    try random_mutex.lock(io);
+    defer random_mutex.unlock(io);
+
     const ts = Io.Clock.now(.real, io);
     const seed_u96: u96 = @bitCast(ts.nanoseconds);
     prng.seed(@truncate(seed_u96));
@@ -38,11 +44,15 @@ fn setHotReload(io: Io) void {
 }
 
 pub fn main(init: std.process.Init) !void {
-    setHotReload(init.io);
+    var rt = try zio.Runtime.init(init.gpa, .{ .executors = .auto });
+    defer rt.deinit();
+
+    const io = rt.io();
+    try setHotReload(io);
 
     const allocator = init.gpa;
 
-    var server = dusty.Server(void).init(allocator, init.io, .{}, {});
+    var server = dusty.Server(void).init(allocator, io, .{}, {});
     defer server.deinit();
 
     const r = &server.router;
@@ -88,10 +98,9 @@ fn readSignals(comptime T: type, req: *dusty.Request) !T {
     );
 }
 
-// Dusty's `Response.content_type` enum has no `.events` variant, so we set the
-// header explicitly when the response is a Datastar SSE batch.
+// Datastar's helpers return complete SSE frames, ready to use as the body.
 fn beginSseBatch(res: *dusty.Response) !void {
-    try res.header("Content-Type", "text/event-stream");
+    res.content_type = .event_stream;
     try res.header("Cache-Control", "no-cache");
 }
 
@@ -123,7 +132,7 @@ fn textHtml(req: *dusty.Request, res: *dusty.Response) !void {
     res.content_type = .html;
     res.body = try std.fmt.allocPrint(req.arena,
         \\<p id="text-html">This is update number {d}</p>
-    , .{try getCountAndIncrement(req.io)});
+    , .{getCountAndIncrement()});
 }
 
 fn patchElements(req: *dusty.Request, res: *dusty.Response) !void {
@@ -135,7 +144,7 @@ fn patchElements(req: *dusty.Request, res: *dusty.Response) !void {
         req.arena,
         \\<p id="mf-patch">This is update number {d}</p>
     ,
-        .{try getCountAndIncrement(req.io)},
+        .{getCountAndIncrement()},
         .{},
     );
 }
@@ -170,7 +179,7 @@ fn patchElementsOpts(req: *dusty.Request, res: *dusty.Response) !void {
             req.arena,
             \\<p>This is update number {d}</p>
         ,
-            .{try getCountAndIncrement(req.io)},
+            .{getCountAndIncrement()},
             opts,
         ),
     };
@@ -181,23 +190,23 @@ fn patchElementsOptsReset(req: *dusty.Request, res: *dusty.Response) !void {
     res.body = try datastar.patchElements(req.arena, @embedFile("index_opts.html"), .{});
 }
 
-fn jsonSignals(_: *dusty.Request, res: *dusty.Response) !void {
-    const foo = prng.random().intRangeAtMost(u8, 0, 255);
-    const bar = prng.random().intRangeAtMost(u8, 0, 255);
+fn jsonSignals(req: *dusty.Request, res: *dusty.Response) !void {
+    const foo = try randomIntRangeAtMost(req.io, u8, 0, 255);
+    const bar = try randomIntRangeAtMost(req.io, u8, 0, 255);
     try res.json(.{ .fooj = foo, .barj = bar }, .{});
 }
 
 fn patchSignals(req: *dusty.Request, res: *dusty.Response) !void {
     try beginSseBatch(res);
-    const foo = prng.random().intRangeAtMost(u8, 0, 255);
-    const bar = prng.random().intRangeAtMost(u8, 0, 255);
+    const foo = try randomIntRangeAtMost(req.io, u8, 0, 255);
+    const bar = try randomIntRangeAtMost(req.io, u8, 0, 255);
     res.body = try datastar.patchSignals(req.arena, .{ .foo = foo, .bar = bar }, .{});
 }
 
 fn patchSignalsOnlyIfMissing(req: *dusty.Request, res: *dusty.Response) !void {
     try beginSseBatch(res);
-    const foo = prng.random().intRangeAtMost(u8, 1, 100);
-    const bar = prng.random().intRangeAtMost(u8, 1, 100);
+    const foo = try randomIntRangeAtMost(req.io, u8, 1, 100);
+    const bar = try randomIntRangeAtMost(req.io, u8, 1, 100);
 
     const signals_block = try datastar.patchSignals(
         req.arena,
@@ -292,70 +301,71 @@ fn executeScript(req: *dusty.Request, res: *dusty.Response) !void {
 // ----- Long-lived streaming SSE -----
 //
 // `svgMorph`, `mathMorph`, and `hotreload` push many SSE events spaced over
-// time. Dusty exposes streaming via `res.startEventStream()` which writes the
-// SSE headers and returns an `EventStream` wrapping the underlying writer.
-// Its `send()` helper only accepts single-line payloads, so we bypass it and
-// write our pre-formatted Datastar SSE blocks directly to `stream.conn` —
-// each block is already a fully-formed `event: ...\ndata: ...\n\n` chunk.
-//
-// The handler stays running for the whole stream, so `req.arena` is valid
-// throughout. We allocate each frame's SSE block on a `FixedBufferAllocator`
-// over a stack buffer and reset between frames to keep memory bounded.
+// time. Datastar has already formatted each event, so the complete frames are
+// written verbatim through Dusty's generic streaming response. Each handler
+// disables Dusty's request deadline and resets a fixed allocator between
+// generated frames.
 
-fn writeBlock(conn: *Io.Writer, block: []const u8) !void {
-    try conn.writeAll(block);
-    try conn.flush();
+fn writeBlock(stream: *dusty.StreamingBodyWriter, block: []const u8) dusty.StreamingBodyWriter.Error!void {
+    stream.interface.writeAll(block) catch return stream.err orelse error.Unexpected;
+    stream.interface.flush() catch return stream.err orelse error.Unexpected;
 }
 
 fn svgMorph(req: *dusty.Request, res: *dusty.Response) !void {
     const opt = try readSignals(struct { svgMorph: usize = 1 }, req);
-    const stream = try res.startEventStream();
+    req.setTimeout(.none);
+    try beginSseBatch(res);
+
+    var stream_buf: [4096]u8 = undefined;
+    var stream = try res.stream(&stream_buf);
 
     var frame_buf: [4096]u8 = undefined;
     var fba: std.heap.FixedBufferAllocator = .init(&frame_buf);
 
     for (0..opt.svgMorph) |_| {
-        try emitSvgFrame(stream.conn, &fba,
+        try emitSvgFrame(&stream, &fba,
             \\<circle id="svg-circle" cx="{}" cy="{}" r="{}" class="fill-red-500 transition-all duration-500" />
         , .{
-            prng.random().intRangeAtMost(u8, 10, 100),
-            prng.random().intRangeAtMost(u8, 10, 100),
-            prng.random().intRangeAtMost(u8, 10, 80),
+            try randomIntRangeAtMost(req.io, u8, 10, 100),
+            try randomIntRangeAtMost(req.io, u8, 10, 100),
+            try randomIntRangeAtMost(req.io, u8, 10, 80),
         });
         try req.io.sleep(.fromMilliseconds(100), .real);
 
-        try emitSvgFrame(stream.conn, &fba,
+        try emitSvgFrame(&stream, &fba,
             \\<rect id="svg-square" x="{}" y="{}" width="{}" height="80" class="fill-green-500 transition-all duration-500" />
         , .{
-            prng.random().intRangeAtMost(u8, 10, 100),
-            prng.random().intRangeAtMost(u8, 10, 100),
-            prng.random().intRangeAtMost(u8, 10, 80),
+            try randomIntRangeAtMost(req.io, u8, 10, 100),
+            try randomIntRangeAtMost(req.io, u8, 10, 100),
+            try randomIntRangeAtMost(req.io, u8, 10, 80),
         });
         try req.io.sleep(.fromMilliseconds(100), .real);
 
-        try emitSvgFrame(stream.conn, &fba,
+        try emitSvgFrame(&stream, &fba,
             \\<polygon id="svg-triangle" points="{},{} {},{} {},{}" class="fill-blue-500 transition-all duration-500" />
         , .{
-            prng.random().intRangeAtMost(u16, 50, 300),
-            prng.random().intRangeAtMost(u16, 50, 300),
-            prng.random().intRangeAtMost(u16, 50, 300),
-            prng.random().intRangeAtMost(u16, 50, 300),
-            prng.random().intRangeAtMost(u16, 50, 300),
-            prng.random().intRangeAtMost(u16, 50, 300),
+            try randomIntRangeAtMost(req.io, u16, 50, 300),
+            try randomIntRangeAtMost(req.io, u16, 50, 300),
+            try randomIntRangeAtMost(req.io, u16, 50, 300),
+            try randomIntRangeAtMost(req.io, u16, 50, 300),
+            try randomIntRangeAtMost(req.io, u16, 50, 300),
+            try randomIntRangeAtMost(req.io, u16, 50, 300),
         });
         try req.io.sleep(.fromMilliseconds(100), .real);
     }
+
+    try stream.end();
 }
 
 fn emitSvgFrame(
-    conn: *Io.Writer,
+    stream: *dusty.StreamingBodyWriter,
     fba: *std.heap.FixedBufferAllocator,
     comptime fmt: []const u8,
     args: anytype,
 ) !void {
     fba.reset();
     const block = try datastar.patchElementsFmt(fba.allocator(), fmt, args, .{ .namespace = .svg });
-    try writeBlock(conn, block);
+    try writeBlock(stream, block);
 }
 
 const mathMLs = [_][]const u8{
@@ -381,7 +391,7 @@ fn mathMorph(req: *dusty.Request, res: *dusty.Response) !void {
             req.arena,
             \\<mn id="math-factor" class="text-red-500 font-bold">{}</mn>
         ,
-            .{prng.random().intRangeAtMost(u16, 2, 22)},
+            .{try randomIntRangeAtMost(req.io, u16, 2, 22)},
             .{ .namespace = .mathml, .view_transition = true },
         );
         const b = try datastar.patchSignals(req.arena, .{ .mathmlMorph = 1 }, .{});
@@ -389,7 +399,11 @@ fn mathMorph(req: *dusty.Request, res: *dusty.Response) !void {
         return;
     }
 
-    const stream = try res.startEventStream();
+    req.setTimeout(.none);
+    try beginSseBatch(res);
+
+    var stream_buf: [4096]u8 = undefined;
+    var stream = try res.stream(&stream_buf);
     var frame_buf: [4096]u8 = undefined;
     var fba: std.heap.FixedBufferAllocator = .init(&frame_buf);
 
@@ -402,19 +416,20 @@ fn mathMorph(req: *dusty.Request, res: *dusty.Response) !void {
 
     for (0..opt.mathmlMorph) |_| {
         fba.reset();
-        const r = prng.random().intRangeAtMost(u8, 1, mathMLs.len);
+        const r = try randomIntRangeAtMost(req.io, u8, 1, mathMLs.len);
         const block = try datastar.patchElements(
             fba.allocator(),
             mathMLs[r - 1],
             .{ .namespace = .mathml },
         );
-        try writeBlock(stream.conn, block);
+        try writeBlock(&stream, block);
         try req.io.sleep(.fromMilliseconds(delay_ms), .real);
     }
 
     fba.reset();
     const reset_block = try datastar.patchSignals(fba.allocator(), .{ .mathmlMorph = 1 }, .{});
-    try writeBlock(stream.conn, reset_block);
+    try writeBlock(&stream, reset_block);
+    try stream.end();
 }
 
 fn code(req: *dusty.Request, res: *dusty.Response) !void {
@@ -475,7 +490,11 @@ fn mimeTest(req: *dusty.Request, res: *dusty.Response) !void {
 
 fn hotreload(req: *dusty.Request, res: *dusty.Response) !void {
     const id = paramInt(u64, req, "id") orelse 0;
-    const stream = try res.startEventStream();
+    req.setTimeout(.none);
+    try beginSseBatch(res);
+
+    var stream_buf: [4096]u8 = undefined;
+    var stream = try res.stream(&stream_buf);
 
     var frame_buf: [1024]u8 = undefined;
     var fba: std.heap.FixedBufferAllocator = .init(&frame_buf);
@@ -483,7 +502,8 @@ fn hotreload(req: *dusty.Request, res: *dusty.Response) !void {
     if (id != hotreload_id) {
         std.log.warn("Client is stale {} != {} - reload them", .{ id, hotreload_id });
         const block = try datastar.executeScript(fba.allocator(), "window.location.reload()", .{});
-        try writeBlock(stream.conn, block);
+        try writeBlock(&stream, block);
+        try stream.end();
         return;
     }
 
@@ -503,6 +523,6 @@ fn hotreload(req: *dusty.Request, res: *dusty.Response) !void {
             .{seconds},
         );
         const block = try datastar.patchElements(fba.allocator(), ping, .{});
-        try writeBlock(stream.conn, block);
+        try writeBlock(&stream, block);
     }
 }
