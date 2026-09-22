@@ -56,6 +56,13 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    const zio = b.dependency("zio", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const dusty_module = dusty.module("dusty");
+    dusty_module.addImport("zio", zio.module("zio"));
 
     const dusty_example = b.addExecutable(.{
         .name = "example_dusty",
@@ -66,7 +73,8 @@ pub fn build(b: *std.Build) void {
         }),
     });
     dusty_example.root_module.addImport("datastar", datastar_module);
-    dusty_example.root_module.addImport("dusty", dusty.module("dusty"));
+    dusty_example.root_module.addImport("dusty", dusty_module);
+    dusty_example.root_module.addImport("zio", zio.module("zio"));
 
     const dusty_install = b.addInstallArtifact(dusty_example, .{});
     const dusty_step = b.step("dusty", "Build the dusty example");
